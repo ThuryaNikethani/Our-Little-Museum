@@ -59,4 +59,4 @@ our-little-museum/
 
 ---
 
-Made with care, for the two of you ❤️.
+Made with care, for the two of you ❤️
