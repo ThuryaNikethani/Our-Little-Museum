@@ -7,12 +7,16 @@
 /* ── STATE ──────────────────────────────── */
 
 const STORAGE_KEY = 'olm_memories';
+const MAX_PHOTOS_PER_MEMORY = 30;
 
 let memories = [];
 let activeMood = 'all';
 let activeView = 'gallery';
 let currentLightboxId = null;
-let editPhotoData = null; // base64
+let currentLightboxIndex = 0;
+let editPhotosData = [];
+let lastSurpriseMemoryId = null;
+let surpriseInProgress = false;
 
 /* ── MOOD CONFIG ─────────────────────────── */
 
@@ -33,7 +37,7 @@ const DEMO_MEMORIES = [
     mood: 'cozy',
     story: 'Warm drinks, fogged glass, and your laugh while the city slowed down outside.',
     tags: ['coffee', 'rain', 'quiet afternoon'],
-    photo: null,
+    photos: [],
   },
   {
     title: 'Golden Hour Walk',
@@ -41,7 +45,7 @@ const DEMO_MEMORIES = [
     mood: 'love',
     story: 'We walked without a destination and somehow found our favorite evening ever.',
     tags: ['sunset', 'walk', 'golden hour'],
-    photo: null,
+    photos: [],
   },
   {
     title: 'Train to Somewhere New',
@@ -49,7 +53,7 @@ const DEMO_MEMORIES = [
     mood: 'adventure',
     story: 'No itinerary, just playlists, shared snacks, and surprise stops.',
     tags: ['trip', 'train', 'weekend'],
-    photo: null,
+    photos: [],
   },
   {
     title: 'First Anniversary Dinner',
@@ -57,20 +61,27 @@ const DEMO_MEMORIES = [
     mood: 'milestone',
     story: 'A table for two, a thousand memories between us, and one promise for many more years.',
     tags: ['anniversary', 'dinner'],
-    photo: null,
+    photos: [],
   },
 ];
 
 /* ── STORAGE ─────────────────────────────── */
 
 function saveMemories() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(memories));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(memories));
+    return true;
+  } catch {
+    alert('Could not save memory. Too many photos may exceed browser storage. Try fewer or smaller images.');
+    return false;
+  }
 }
 
 function loadMemories() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    memories = raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    memories = parsed.map(normalizeMemoryPhotos);
   } catch {
     memories = [];
   }
@@ -97,6 +108,37 @@ function escHtml(str) {
     .replace(/"/g,'&quot;');
 }
 
+function normalizeMemoryPhotos(memory) {
+  const photos = Array.isArray(memory.photos)
+    ? memory.photos.filter(Boolean).slice(0, MAX_PHOTOS_PER_MEMORY)
+    : (memory.photo ? [memory.photo] : []);
+
+  return { ...memory, photos };
+}
+
+function getPhotos(memory) {
+  if (!memory) return [];
+  if (Array.isArray(memory.photos)) return memory.photos.filter(Boolean).slice(0, MAX_PHOTOS_PER_MEMORY);
+  return memory.photo ? [memory.photo] : [];
+}
+
+function getCoverPhoto(memory) {
+  return getPhotos(memory)[0] || null;
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function getFilteredMemories() {
   const q = document.getElementById('searchInput').value.trim().toLowerCase();
   return memories
@@ -110,7 +152,7 @@ function getFilteredMemories() {
 
 function getMemoryPercentWithPhotos() {
   if (!memories.length) return 0;
-  const withPhoto = memories.filter(mem => !!mem.photo).length;
+  const withPhoto = memories.filter(mem => getPhotos(mem).length > 0).length;
   return Math.round((withPhoto / memories.length) * 100);
 }
 
@@ -188,8 +230,9 @@ function renderGallery() {
 }
 
 function cardHTML(mem) {
-  const imgPart = mem.photo
-    ? `<img src="${mem.photo}" alt="${escHtml(mem.title)}" loading="lazy" />`
+  const cover = getCoverPhoto(mem);
+  const imgPart = cover
+    ? `<img src="${cover}" alt="${escHtml(mem.title)}" loading="lazy" />`
     : `<div class="card-no-photo">◈</div>`;
 
   const tags = (mem.tags || []).map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
@@ -220,11 +263,13 @@ function renderTimeline() {
     return;
   }
 
-  container.innerHTML = filtered.map((mem, i) => `
+  container.innerHTML = filtered.map((mem, i) => {
+    const cover = getCoverPhoto(mem);
+    return `
     <div class="timeline-item" data-id="${mem.id}">
       ${i % 2 === 0 ? `
         <div class="timeline-card" data-id="${mem.id}">
-          ${mem.photo ? `<img class="timeline-card-img" src="${mem.photo}" alt="" />` : ''}
+          ${cover ? `<img class="timeline-card-img" src="${cover}" alt="" />` : ''}
           <div class="timeline-card-date">${formatDate(mem.date)}</div>
           <div class="timeline-card-mood">${escHtml(MOOD_LABELS[mem.mood] || '')}</div>
           <div class="timeline-card-title">${escHtml(mem.title)}</div>
@@ -235,13 +280,14 @@ function renderTimeline() {
         <div class="timeline-spacer"></div>
         <div class="timeline-dot"><div class="timeline-dot-inner"></div></div>
         <div class="timeline-card" data-id="${mem.id}">
-          ${mem.photo ? `<img class="timeline-card-img" src="${mem.photo}" alt="" />` : ''}
+          ${cover ? `<img class="timeline-card-img" src="${cover}" alt="" />` : ''}
           <div class="timeline-card-date">${formatDate(mem.date)}</div>
           <div class="timeline-card-mood">${escHtml(MOOD_LABELS[mem.mood] || '')}</div>
           <div class="timeline-card-title">${escHtml(mem.title)}</div>
         </div>
       `}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   container.querySelectorAll('.timeline-card').forEach(card => {
     card.addEventListener('click', () => openLightbox(card.dataset.id));
@@ -277,7 +323,7 @@ function renderEmotions() {
           ${items.map(mem => `
             <div class="emotion-item" data-id="${mem.id}">
               <div class="emotion-item-thumb">
-                ${mem.photo ? `<img src="${mem.photo}" alt="" />` : '◈'}
+                ${getCoverPhoto(mem) ? `<img src="${getCoverPhoto(mem)}" alt="" />` : '◈'}
               </div>
               <div class="emotion-item-text">
                 <div class="emotion-item-title">${escHtml(mem.title)}</div>
@@ -301,6 +347,15 @@ function renderAll() {
   renderEmotions();
 }
 
+function setActiveView(view) {
+  activeView = view;
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(`view-${view}`)?.classList.add('active');
+}
+
 function addDemoMemories() {
   if (memories.length > 0 && !confirm('Add demo memories to your current collection?')) return;
 
@@ -311,7 +366,7 @@ function addDemoMemories() {
     mood: mem.mood,
     story: mem.story,
     tags: [...mem.tags],
-    photo: mem.photo,
+    photos: [...(mem.photos || [])],
     created: Date.now() - Math.floor(Math.random() * 500000),
   }));
 
@@ -322,10 +377,11 @@ function addDemoMemories() {
 
 /* ── LIGHTBOX ────────────────────────────── */
 
-function openLightbox(id) {
+function openLightbox(id, photoIndex = 0) {
   const mem = memories.find(m => m.id === id);
   if (!mem) return;
   currentLightboxId = id;
+  currentLightboxIndex = Number.isFinite(photoIndex) ? photoIndex : 0;
 
   document.getElementById('lightboxMood').textContent = MOOD_LABELS[mem.mood] || '';
   document.getElementById('lightboxTitle').textContent = mem.title;
@@ -334,18 +390,60 @@ function openLightbox(id) {
   document.getElementById('lightboxTags').innerHTML = (mem.tags || [])
     .map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
 
-  const img = document.getElementById('lightboxImg');
-  if (mem.photo) {
-    img.src = mem.photo;
-    img.style.display = 'block';
-    document.querySelector('.lightbox-img-wrap').style.display = 'flex';
-  } else {
-    img.style.display = 'none';
-    document.querySelector('.lightbox-img-wrap').style.display = 'none';
-  }
+  renderLightboxPhoto();
+  renderLightboxThumbs();
 
   document.getElementById('lightboxOverlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+}
+
+function renderLightboxPhoto() {
+  const mem = memories.find(m => m.id === currentLightboxId);
+  if (!mem) return;
+  const photos = getPhotos(mem);
+
+  const img = document.getElementById('lightboxImg');
+  const wrap = document.querySelector('.lightbox-img-wrap');
+  const prev = document.getElementById('lightboxPrev');
+  const next = document.getElementById('lightboxNext');
+  const meta = document.getElementById('lightboxPhotoMeta');
+
+  if (!photos.length) {
+    img.style.display = 'none';
+    if (prev) prev.style.display = 'none';
+    if (next) next.style.display = 'none';
+    if (wrap) wrap.style.display = 'none';
+    if (meta) meta.textContent = 'No photo attached';
+    return;
+  }
+
+  if (currentLightboxIndex < 0) currentLightboxIndex = 0;
+  if (currentLightboxIndex >= photos.length) currentLightboxIndex = photos.length - 1;
+
+  img.src = photos[currentLightboxIndex];
+  img.style.display = 'block';
+  if (wrap) wrap.style.display = 'flex';
+  if (prev) prev.style.display = photos.length > 1 ? 'flex' : 'none';
+  if (next) next.style.display = photos.length > 1 ? 'flex' : 'none';
+  if (meta) meta.textContent = `${currentLightboxIndex + 1} / ${photos.length} photos`;
+}
+
+function renderLightboxThumbs() {
+  const mem = memories.find(m => m.id === currentLightboxId);
+  const thumbs = document.getElementById('lightboxThumbs');
+  if (!thumbs) return;
+
+  const photos = getPhotos(mem);
+  if (!photos.length) {
+    thumbs.innerHTML = '';
+    return;
+  }
+
+  thumbs.innerHTML = photos.map((src, index) => `
+    <button class="lightbox-thumb ${index === currentLightboxIndex ? 'active' : ''}" data-index="${index}" type="button">
+      <img src="${src}" alt="Photo ${index + 1}" />
+    </button>
+  `).join('');
 }
 
 function closeLightbox() {
@@ -359,10 +457,18 @@ function closeLightbox() {
 function openModal(mem = null) {
   const form = document.getElementById('memoryForm');
   form.reset();
-  editPhotoData = null;
+  editPhotosData = [];
+  const previewGrid = document.getElementById('uploadPreviewGrid');
+  if (previewGrid) {
+    previewGrid.innerHTML = '';
+    previewGrid.classList.add('hidden');
+  }
+  const placeholder = document.getElementById('uploadPlaceholder');
+  if (placeholder) placeholder.style.display = 'flex';
+  const photoInput = document.getElementById('photoInput');
+  if (photoInput) photoInput.value = '';
+  updateUploadHelp();
 
-  document.getElementById('uploadPreview').classList.add('hidden');
-  document.getElementById('uploadPlaceholder').style.display = 'flex';
   document.getElementById('modalTitle').textContent = mem ? 'Edit Memory' : 'Add a Memory';
   document.getElementById('editId').value = mem ? mem.id : '';
 
@@ -379,13 +485,8 @@ function openModal(mem = null) {
     document.querySelectorAll('.mood-option').forEach(el => {
       if (el.dataset.mood === mem.mood) el.classList.add('selected');
     });
-    if (mem.photo) {
-      editPhotoData = mem.photo;
-      const preview = document.getElementById('uploadPreview');
-      preview.src = mem.photo;
-      preview.classList.remove('hidden');
-      document.getElementById('uploadPlaceholder').style.display = 'none';
-    }
+    editPhotosData = getPhotos(mem);
+    renderUploadPreviewGrid();
   } else {
     // Default date to today
     document.getElementById('dateInput').value = new Date().toISOString().slice(0, 10);
@@ -416,18 +517,18 @@ function saveMemory(e) {
   if (!title) { shake(document.getElementById('titleInput')); return; }
   if (!mood)  { shake(document.querySelector('#moodSelect')); return; }
 
-  const photo = editPhotoData || null;
+  const photos = [...editPhotosData];
 
   if (editId) {
     const idx = memories.findIndex(m => m.id === editId);
     if (idx > -1) {
-      memories[idx] = { ...memories[idx], title, date, mood, story, tags, photo };
+      memories[idx] = normalizeMemoryPhotos({ ...memories[idx], title, date, mood, story, tags, photos });
     }
   } else {
-    memories.unshift({ id: generateId(), title, date, mood, story, tags, photo, created: Date.now() });
+    memories.unshift(normalizeMemoryPhotos({ id: generateId(), title, date, mood, story, tags, photos, created: Date.now() }));
   }
 
-  saveMemories();
+  if (!saveMemories()) return;
   renderAll();
   closeModal();
 }
@@ -453,21 +554,58 @@ function deleteMemory(id) {
 
 /* ── PHOTO UPLOAD ────────────────────────── */
 
-function handlePhotoFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  if (file.size > 10 * 1024 * 1024) {
-    alert('Please choose a photo under 10 MB.');
+function updateUploadHelp() {
+  const help = document.getElementById('uploadHelp');
+  if (help) help.textContent = `${editPhotosData.length} / ${MAX_PHOTOS_PER_MEMORY} photos selected`;
+}
+
+function renderUploadPreviewGrid() {
+  const grid = document.getElementById('uploadPreviewGrid');
+  const placeholder = document.getElementById('uploadPlaceholder');
+  if (!grid || !placeholder) return;
+
+  if (!editPhotosData.length) {
+    grid.classList.add('hidden');
+    grid.innerHTML = '';
+    placeholder.style.display = 'flex';
+    updateUploadHelp();
     return;
   }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    editPhotoData = e.target.result;
-    const preview = document.getElementById('uploadPreview');
-    preview.src = editPhotoData;
-    preview.classList.remove('hidden');
-    document.getElementById('uploadPlaceholder').style.display = 'none';
-  };
-  reader.readAsDataURL(file);
+
+  grid.innerHTML = editPhotosData.map((src, index) => `
+    <div class="upload-thumb" title="Photo ${index + 1}">
+      <img src="${src}" alt="Selected photo ${index + 1}" />
+    </div>
+  `).join('');
+  grid.classList.remove('hidden');
+  placeholder.style.display = 'none';
+  updateUploadHelp();
+}
+
+async function handlePhotoFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+
+  const slotsLeft = MAX_PHOTOS_PER_MEMORY - editPhotosData.length;
+  if (slotsLeft <= 0) {
+    alert(`Maximum ${MAX_PHOTOS_PER_MEMORY} photos allowed for one memory.`);
+    return;
+  }
+
+  const candidates = files.slice(0, slotsLeft);
+  const validFiles = candidates.filter(file => file.type.startsWith('image/'));
+
+  if (!validFiles.length) return;
+
+  const oversized = validFiles.find(file => file.size > 10 * 1024 * 1024);
+  if (oversized) {
+    alert('Each photo must be under 10 MB.');
+    return;
+  }
+
+  const loaded = await Promise.all(validFiles.map(readFileAsDataURL));
+  editPhotosData = [...editPhotosData, ...loaded].slice(0, MAX_PHOTOS_PER_MEMORY);
+  renderUploadPreviewGrid();
 }
 
 /* ── EVENT BINDINGS ──────────────────────── */
@@ -476,18 +614,80 @@ document.addEventListener('DOMContentLoaded', () => {
   const byId = (id) => document.getElementById(id);
   const on = (id, event, handler) => {
     const el = byId(id);
-    if (el) el.addEventListener(event, handler);
+    if (el) {
+      el.addEventListener(event, handler);
+      el.dataset.bound = '1';
+    }
   };
 
-  const handleSurprise = () => {
+  const pickSurpriseMemory = (source) => {
+    if (!source.length) return null;
+    if (source.length === 1) return source[0];
+
+    const withoutLast = source.filter(mem => mem.id !== lastSurpriseMemoryId);
+    const pool = withoutLast.length ? withoutLast : source;
+
+    const withPhotos = pool.filter(mem => getPhotos(mem).length > 0);
+    const weightedPool = withPhotos.length ? withPhotos : pool;
+    return weightedPool[Math.floor(Math.random() * weightedPool.length)] || null;
+  };
+
+  const handleSurprise = async () => {
+    if (surpriseInProgress) return;
+
     const pool = getFilteredMemories();
     const source = pool.length ? pool : memories;
     if (!source.length) {
       openModal();
       return;
     }
-    const random = source[Math.floor(Math.random() * source.length)];
-    openLightbox(random.id);
+
+    const button = byId('quickSurpriseBtn');
+    const originalText = button?.textContent || '✦ Surprise Me';
+
+    surpriseInProgress = true;
+    if (button) {
+      button.disabled = true;
+      button.classList.add('is-loading');
+    }
+
+    try {
+      const shuffleTexts = ['✦ Finding a memory…', '✦ Shuffling moments…', '✦ One second…'];
+      if (button) {
+        for (const text of shuffleTexts) {
+          button.textContent = text;
+          await delay(180);
+        }
+      } else {
+        await delay(520);
+      }
+
+      const picked = pickSurpriseMemory(source);
+      if (!picked) return;
+
+      lastSurpriseMemoryId = picked.id;
+      setActiveView('gallery');
+      renderAll();
+
+      const pickedCard = document.querySelector(`.memory-card[data-id="${picked.id}"]`);
+      if (pickedCard) {
+        pickedCard.classList.add('surprise-picked');
+        pickedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => pickedCard.classList.remove('surprise-picked'), 1200);
+      }
+
+      const photos = getPhotos(picked);
+      const randomPhotoIndex = photos.length ? Math.floor(Math.random() * photos.length) : 0;
+      await delay(220);
+      openLightbox(picked.id, randomPhotoIndex);
+    } finally {
+      surpriseInProgress = false;
+      if (button) {
+        button.disabled = false;
+        button.classList.remove('is-loading');
+        button.textContent = originalText;
+      }
+    }
   };
 
   loadMemories();
@@ -508,11 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Nav
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeView = btn.dataset.view;
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      document.getElementById(`view-${activeView}`).classList.add('active');
+      setActiveView(btn.dataset.view);
     });
   });
 
@@ -535,6 +731,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', (e) => {
     const target = e.target.closest('#quickAddBtn, #emptyAddBtn, #quickDemoBtn, #emptyDemoBtn, #quickSurpriseBtn, #spotlightOpen');
     if (!target) return;
+    if (target.dataset.bound === '1') return;
 
     if (target.id === 'quickAddBtn' || target.id === 'emptyAddBtn') openModal();
     else if (target.id === 'quickDemoBtn' || target.id === 'emptyDemoBtn') addDemoMemories();
@@ -582,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const photoInput = document.getElementById('photoInput');
 
   uploadArea.addEventListener('click', () => photoInput.click());
-  photoInput.addEventListener('change', () => handlePhotoFile(photoInput.files[0]));
+  photoInput.addEventListener('change', () => handlePhotoFiles(photoInput.files));
 
   uploadArea.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -592,7 +789,36 @@ document.addEventListener('DOMContentLoaded', () => {
   uploadArea.addEventListener('drop', (e) => {
     e.preventDefault();
     uploadArea.classList.remove('drag-over');
-    handlePhotoFile(e.dataTransfer.files[0]);
+    handlePhotoFiles(e.dataTransfer.files);
+  });
+
+  // Lightbox photo navigation
+  on('lightboxPrev', 'click', () => {
+    const mem = memories.find(m => m.id === currentLightboxId);
+    const photos = getPhotos(mem);
+    if (photos.length <= 1) return;
+    currentLightboxIndex = (currentLightboxIndex - 1 + photos.length) % photos.length;
+    renderLightboxPhoto();
+    renderLightboxThumbs();
+  });
+
+  on('lightboxNext', 'click', () => {
+    const mem = memories.find(m => m.id === currentLightboxId);
+    const photos = getPhotos(mem);
+    if (photos.length <= 1) return;
+    currentLightboxIndex = (currentLightboxIndex + 1) % photos.length;
+    renderLightboxPhoto();
+    renderLightboxThumbs();
+  });
+
+  document.getElementById('lightboxThumbs')?.addEventListener('click', (e) => {
+    const thumb = e.target.closest('.lightbox-thumb');
+    if (!thumb) return;
+    const index = Number(thumb.dataset.index);
+    if (Number.isNaN(index)) return;
+    currentLightboxIndex = index;
+    renderLightboxPhoto();
+    renderLightboxThumbs();
   });
 
   // Lightbox close

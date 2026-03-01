@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/style.css?v=20260301" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20260301c" />
 </head>
 <body>
 
@@ -155,15 +155,16 @@
         <input type="hidden" id="editId" />
 
         <div class="form-group">
-          <label>Photo</label>
+          <label>Photos <span class="label-note">(up to 30)</span></label>
           <div class="upload-area" id="uploadArea">
-            <input type="file" id="photoInput" accept="image/*" hidden />
+            <input type="file" id="photoInput" accept="image/*" multiple hidden />
             <div class="upload-placeholder" id="uploadPlaceholder">
               <span class="upload-icon">⊕</span>
-              <span>Click or drag a photo here</span>
+              <span>Click or drag photos here</span>
             </div>
-            <img class="upload-preview hidden" id="uploadPreview" alt="preview" />
+            <div class="upload-preview-grid hidden" id="uploadPreviewGrid"></div>
           </div>
+          <p class="upload-help" id="uploadHelp">0 / 30 photos selected</p>
         </div>
 
         <div class="form-row">
@@ -214,12 +215,16 @@
     <button class="lightbox-close" id="lightboxClose">✕</button>
     <div class="lightbox-inner">
       <div class="lightbox-img-wrap">
+        <button class="lightbox-nav lightbox-nav-prev" id="lightboxPrev" type="button" aria-label="Previous photo">‹</button>
         <img id="lightboxImg" alt="" />
+        <button class="lightbox-nav lightbox-nav-next" id="lightboxNext" type="button" aria-label="Next photo">›</button>
       </div>
       <div class="lightbox-info">
         <div class="lightbox-mood" id="lightboxMood"></div>
         <h2 class="lightbox-title" id="lightboxTitle"></h2>
         <p class="lightbox-date" id="lightboxDate"></p>
+        <p class="lightbox-photo-meta" id="lightboxPhotoMeta"></p>
+        <div class="lightbox-thumbs" id="lightboxThumbs"></div>
         <p class="lightbox-story" id="lightboxStory"></p>
         <div class="lightbox-tags" id="lightboxTags"></div>
         <div class="lightbox-actions">
@@ -230,6 +235,6 @@
     </div>
   </div>
 
-  <script src="assets/js/app.js?v=20260301"></script>
+  <script src="assets/js/app.js?v=20260301c"></script>
 </body>
 </html>
