@@ -57,6 +57,9 @@ our-little-museum/
         └── app.js
 ```
 
+## Authors
+[Thurya Nikethani(Thinu)](https://github.com/ThuryaNikethani)
+
 ---
 
 Made with care, for the two of you ❤️
