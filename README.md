@@ -57,7 +57,7 @@ our-little-museum/
         └── app.js
 ```
 
-## Authors
+## Author
 [Thurya Nikethani(Thinu)](https://github.com/ThuryaNikethani)
 
 ---
